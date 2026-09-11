@@ -1,0 +1,43 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '4.1.2-SNAPSHOT'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'kr.co.wikibook'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(25)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven { url = 'https://repo.spring.io/snapshot' }
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    runtimeOnly 'com.h2database:h2'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+tasks.register('h2', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.h2.tools.Console'
+
+    def props = new Properties()
+    file('src/main/resources/application.properties').withInputStream { props.load(it) }
+
+    args(
+            '-driver', props['spring.datasource.driver-class-name'],
+            '-url', props['spring.datasource.url'],
+            '-user', props['spring.datasource.username']
+    )
+}

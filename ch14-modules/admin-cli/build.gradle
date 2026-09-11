@@ -1,0 +1,14 @@
+plugins {
+    id 'batch-modules.spring-lib-deps'
+    id 'org.springframework.boot'
+    id 'maven-publish'
+}
+
+dependencies {
+    implementation project(':hello-job-group')
+    implementation project(':report-job-group')
+    implementation 'org.springframework.boot:spring-boot-starter'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'io.micrometer:micrometer-registry-prometheus'
+    implementation 'io.prometheus:prometheus-metrics-exporter-pushgateway'
+}

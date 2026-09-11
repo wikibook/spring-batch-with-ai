@@ -1,0 +1,25 @@
+plugins {
+    id 'batch-modules.spring-lib-deps'
+}
+
+dependencies {
+    api project(':batch-support')
+}
+
+jar {
+    manifest {
+        attributes(
+            'Main-Class': 'kr.co.wikibook.batch.hello.HelloJobGroupRunner',
+            'Class-Path': configurations.runtimeClasspath.files.collect { "deps/${it.name}" }.join(' ')
+        )
+    }
+}
+
+tasks.register('copyDependencies', Copy) {
+    from configurations.runtimeClasspath
+    into layout.buildDirectory.dir("libs/deps")
+}
+
+tasks.build {
+    dependsOn copyDependencies
+}

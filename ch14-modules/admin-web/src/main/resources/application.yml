@@ -1,0 +1,19 @@
+spring:
+  config:
+    import: classpath:/job-db.properties
+  quartz:
+    job-store-type: jdbc
+    jdbc:
+      initialize-schema: always
+  boot:
+    admin:
+      client:
+        url: http://localhost:8080
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, quartz, scheduledtasks, prometheus, metrics
+    jmx:
+      exposure:
+        include: health, quartz, scheduledtasks, prometheus, metrics

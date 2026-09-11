@@ -1,0 +1,16 @@
+plugins {
+    id 'batch-modules.spring-lib-deps'
+}
+
+dependencies {
+    api project(':batch-support')
+}
+
+tasks.register('copyDependencies', Copy) {
+    from configurations.runtimeClasspath
+    into layout.buildDirectory.dir("libs")
+}
+
+tasks.build {
+    dependsOn copyDependencies
+}

@@ -1,0 +1,29 @@
+groups:
+  - name: batch-job-alerts
+    rules:
+      - alert: BatchJobFailed
+        expr: >-
+          increase(spring_batch_job_seconds_count{job="batch-metric",spring_batch_job_status="FAILED"}[10m]) > 0
+          or
+          (spring_batch_job_seconds_count{job="batch-metric",spring_batch_job_status="FAILED"}
+          unless spring_batch_job_seconds_count{job="batch-metric",spring_batch_job_status="FAILED"} offset 10m)
+        labels:
+          severity: critical
+        annotations:
+          summary: "배치 잡 실패 감지"
+      - alert: SettleOrderJobNotCompleted
+        expr: >-
+          increase(spring_batch_job_seconds_count{job="batch-metric",spring_batch_job_name="settleOrderJob",spring_batch_job_status="COMPLETED"}[24h]) == 0
+          and spring_batch_job_seconds_count{job="batch-metric",spring_batch_job_name="settleOrderJob",spring_batch_job_status="COMPLETED"} offset 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: "settleOrderJob이 24시간 동안 성공하지 못함"
+      - alert: SettleOrderJobNeverCompleted
+        expr: >-
+          absent(spring_batch_job_seconds_count{job="batch-metric",spring_batch_job_name="settleOrderJob",spring_batch_job_status="COMPLETED"})
+        for: 24h
+        labels:
+          severity: warning
+        annotations:
+          summary: "settleOrderJob의 성공 메트릭이 만들어지지 않음"

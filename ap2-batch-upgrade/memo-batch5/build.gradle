@@ -1,0 +1,57 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.5.6'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+group = 'kr.co.wikibook.batch'
+version = '0.0.1-SNAPSHOT'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs += ['-Xlint:deprecation']
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.springframework.boot:spring-boot-starter-batch'
+    implementation 'org.springframework.boot:spring-boot-starter-jdbc'
+    runtimeOnly 'com.h2database:h2'
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.batch:spring-batch-test'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+def h2ConsoleArgs = { String prefix ->
+    def props = new Properties()
+    file('src/main/resources/application.properties').withInputStream { props.load(it) }
+    return [
+            '-driver', props.get("${prefix}.driver-class-name" as String),
+            '-url', props.get("${prefix}.jdbc-url" as String),
+            '-user', props.get("${prefix}.username" as String)
+    ]
+}
+
+tasks.register('mainDb', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.h2.tools.Console'
+    args(h2ConsoleArgs('main-db'))
+}
+
+tasks.register('jobDb', JavaExec) {
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.h2.tools.Console'
+    args(h2ConsoleArgs('job-db'))
+}

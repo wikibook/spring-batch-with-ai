@@ -1,0 +1,14 @@
+# 코덱스용 훅 등록. scripts/ 디렉터리의 검증 스크립트를 클로드 코드와 공유한다.
+
+[[hooks.PostToolUse]]
+matcher = "apply_patch"
+
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "./scripts/check-java.sh"
+
+[[hooks.Stop]]
+
+[[hooks.Stop.hooks]]
+type = "command"
+command = "./scripts/run-tests.sh"
