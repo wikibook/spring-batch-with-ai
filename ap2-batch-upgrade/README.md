@@ -58,5 +58,6 @@ H2 콘솔로 들여다보려면 `./gradlew jobDb` 또는 `./gradlew mainDb`를 �
 부록 B의 'AI 에이전트와 함께 업그레이드하기' 절에서 안내하는 문서다.
 AI 에이전트에 컨텍스트로 바로 넘길 수 있게 작업 원칙, 검색 패턴, 체크리스트, 검수 포인트를 담았다.
 
-- [spring-batch-4-to-6.md](spring-batch-4-to-6.md): 스프링 배치 4 → 6 (스프링 부트 2.7 → 4)
-- [spring-batch-5-to-6.md](spring-batch-5-to-6.md): 스프링 배치 5 → 6 (스프링 부트 3 → 4)
+- [spring-batch-5-to-6.md](spring-batch-5-to-6.md): 스프링 배치 5 → 6 (스프링 부트 3 → 4). 본체 문서다.
+- [spring-batch-4-to-6.md](spring-batch-4-to-6.md): 스프링 배치 4 → 6 (스프링 부트 2.7 → 4).
+  5 → 6 문서를 전제로 4에서 올 때만 필요한 절과 보충만 담았다. 에이전트에는 두 문서를 함께 넘긴다.

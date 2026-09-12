@@ -1,185 +1,77 @@
 # Spring Batch 4 → 6 / Spring Boot 2.7 → 4 업그레이드 작업 지시서
 
-## 작업 원칙
+**기준 버전: Spring Batch 6.0.6.** 공통 지침의 버전 기준과 의존성 확인 절차를 따른다.
 
-- 아래 체크리스트를 **위에서 아래로 순서대로** 적용한다.
-- 각 소절에 실린 `rg` 패턴을 돌려서 걸리는 파일을 빠짐없이 확인하고 교체한다.
-- deprecated API는 무조건 비-deprecated 대체 API로 교체한다. "이전 형태도 동작한다"는 이유로 남겨 두지 않는다.
-- 확신이 없는 지점이 나오면 **멈추고 사람에게 질문한다**. 추측으로 진행하지 않는다.
-- 소절마다 컴파일과 테스트를 돌려 회귀가 없는지 확인한다.
-- 변경 근거를 커밋 메시지에 해당 소절 제목으로 남긴다.
-- 이 문서는 **4.x에서 6.x로 직접 가는** 변경만 적는다. 5.x 시절의 중간 API(예: `.chunk(int, TxMgr)` 2-인자 시그니처, Batch 5까지의 `org.springframework.batch.item.*` 경로)는 6.x에서 deprecated 또는 이동됐으므로, 중간 단계를 거치지 말고 바로 최종 형태로 교체한다.
+이 문서는 `spring-batch-5-to-6.md`를 전제로 한다. **두 문서를 함께 컨텍스트에 넣는다.**
+작업 원칙, 작업 전 확인 사항, 완료 보고 형식, 완료 후 검수 포인트, 공식 참고 자료는 5→6 문서를 그대로 따른다.
+이 문서에는 다음 두 가지만 적는다.
 
-검색 명령은 ripgrep(`rg`)을 기준으로 적었다(https://github.com/BurntSushi/ripgrep). 설치돼 있지 않으면 `grep -rE`로 바꿔도 된다.
+- **4 전용 절**: Batch 4 / Boot 2.7에서 올 때만 필요한 변경. 절 번호를 A, B, C, ...로 붙였다.
+- **보충**: 5→6 문서의 절을 적용할 때 Batch 4 프로젝트에서 추가로 볼 내용.
 
-## 작업 전 확인 사항
+## 이 문서만의 원칙
 
-- 깨끗한 Git 작업 트리 + 현재 버전에서의 빌드·테스트 통과 스냅샷
-- `./gradlew dependencies` 출력 스냅샷
-- 메타데이터 테이블을 여러 배치 애플리케이션이 공유한다면 "테이블 접두어 분리"(2절) 전략을 먼저 결정할 것
+- **최종 코드는 6.x API를 목표로 한다.** 5.x 시절의 중간 형태(예: `.chunk(int, TransactionManager)` 2-인자 시그니처, Batch 5까지의 `org.springframework.batch.item.*` 경로, `JobLauncherTestUtils`)는 6.x에서 deprecated 또는 이동됐다. 동등한 동작을 확인한 뒤 최종 형태로 교체한다. 필요하면 격리된 환경에서 중간 버전을 검증할 수 있으며, 최종 코드가 6.x라고 해서 4→5의 스키마·직렬화 변경을 생략하지 않는다. 5→6 문서의 표에서 '이전' 열은 Batch 5 형태이므로, Batch 4 형태에서 '변경 후' 열로 바로 간다.
+- Boot 2.7 → 4는 메이저 두 단계를 건너뛴다. 배치 외 영역(웹, 시큐리티, 데이터 접근 등)은 아래 공식 가이드를 따로 적용한다. 이 문서는 배치 부분만 다룬다.
+  - Spring Boot 3.0 Migration Guide: https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide
+  - Spring Boot 4.0 Migration Guide: https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide
 
-## 체크리스트
+## 작업 전 확인 사항 (추가)
 
-### 1. 기준선 상승: JDK 17+, `javax` → `jakarta`
+- E절과 5→6 문서 16절을 먼저 읽고, 이력 보존 요구·미완료 실행·공유 애플리케이션·직렬화 설정을 조사한다. 기존 저장소 이행과 새 저장소 분리 중 전환 전략을 정한다. 결정이 필요한 동안에도 의존하지 않는 코드 조사와 격리된 테스트 준비는 계속할 수 있다.
 
-- JDK 17 이상 필수 (Boot 4에서는 21 권장).
-- `javax.*` → `jakarta.*` 치환.
+## 적용 순서
+
+5→6 문서의 '적용 순서'를 따르되 아래처럼 관련 절을 묶는다. 절 번호 순서보다 컴파일·기동의 의존 관계를 우선한다.
+
+| 작업 묶음 | 적용할 절 | 확인할 내용 |
+|---|---|---|
+| 사전 조사·전환 계획 | **E**, 5→6 **16절** | 메타DB 스키마·이력·ExecutionContext·미완료 실행 |
+| 빌드 기준선 | **A**, 5→6 **0절** + 보충 | 정확한 목표 버전, JDK·빌드 도구, Jakarta, 스타터 |
+| 패키지·컴포넌트 | **C**, 5→6 **1·3절** + 보충 | import, Writer의 Chunk, 초기화 호출 |
+| 잡·스텝과 오류 처리 | **B**, 5→6 **2·7·8절** + 보충 | 빌더, 재시도·skip, 리스너 호출 시점 |
+| 실행·저장소 구성 | **D**, 5→6 **4·5·6·9·10절** + 보충 | JobOperator, 저장소, 트랜잭션, 속성 |
+| 모델·파라미터·직렬화 | **F**, 5→6 **12·13·15절** + 보충 | 생성자·시간 타입·Jackson·record·incrementer |
+| 기타 사용 기능 | **G**, 5→6 **11·14·17절** | JSR-352·JAXB, 컨텍스트 격리, Framework API, 모니터링 |
+
+사용 중인 기능의 의존 변경까지 처리한 뒤 전체 빌드·테스트를 실행한다. 이후 동일 입력 결과, 실패 후 재시작, 중복 실행, 리스너·트랜잭션 동작과 전환 리허설을 검증하고 공통 완료 보고 형식으로 보고한다.
+
+## 4 전용 절
+
+### A. 기준선 상승: JDK 17+, `javax` → `jakarta`
+
+- 목표 버전의 JDK·빌드 도구 지원 범위를 확인한다. Boot 4.0의 최소 JDK는 17이며, 실제 실행·툴체인·배포 버전은 5→6 문서 0절에서 정한다.
+- Jakarta EE로 이동한 API만 사용처와 의존성을 함께 바꾼다. `javax.*` 전체를 일괄 치환하지 않는다.
 
 | 이전 (Batch 4 / Boot 2.7) | 변경 후 (Batch 6 / Boot 4) |
 |---|---|
-| `javax.annotation.*` | `jakarta.annotation.*` |
+| `javax.annotation.PostConstruct`, `PreDestroy`, `Resource` 등 Jakarta로 이동한 애너테이션 | 대응하는 `jakarta.annotation.*` |
 | `javax.inject.*` | `jakarta.inject.*` |
 | `javax.validation.*` | `jakarta.validation.*` |
 | `javax.persistence.*` | `jakarta.persistence.*` |
 | `javax.servlet.*` | `jakarta.servlet.*` |
 
-추천 순서: **JDK 먼저 17로 → 스프링 부트 버전 올리기 → javax→jakarta 치환.**
+`javax.sql.DataSource`, `javax.xml.parsers.*`, `javax.crypto.*` 등 JDK에 남아 있는 API는 그대로 둔다. `javax.annotation`의 nullability 애너테이션 등은 소속 라이브러리와 목표 대체 API를 따로 확인한다. JAXB는 G절을 따른다.
+
+추천 순서: **JDK 먼저 17 이상으로 → 스프링 부트 버전 올리기(5→6 0절) → javax→jakarta 치환.**
 
 검색:
 ```
 rg "javax\.(annotation|inject|validation|persistence|servlet)\." src
 ```
 
-### 2. 메타DB 스키마 변경과 접두어 분리 전략
-
-`BATCH_*` 테이블 스키마가 5.0에서 크게 바뀌었고 6에서도 그대로 유지된다.
-
-| 테이블 | 변경 | 칼럼 |
-|---|---|---|
-| BATCH_STEP_EXECUTION | 추가 | CREATE_TIME |
-| BATCH_JOB_EXECUTION_PARAMS | 이름 변경 | TYPE_CD → PARAMETER_TYPE |
-| BATCH_JOB_EXECUTION_PARAMS | 이름 변경 | KEY_NAME → PARAMETER_NAME |
-| BATCH_JOB_EXECUTION_PARAMS | 이름 변경 | STRING_VAL → PARAMETER_VALUE |
-| BATCH_JOB_EXECUTION_PARAMS | 제거 | DATE_VAL / LONG_VAL / DOUBLE_VAL |
-
-권장 전략: **테이블 접두어 분리.** 4.3 버전은 `BATCH_JOB_INSTANCE`, 6.0 버전은 `BATCH6_JOB_INSTANCE` 등으로 분리해 롤백 난이도를 낮춘다. 접두어 설정은 5절(저장소 설정) 참고.
-
-공식 마이그레이션 스크립트: `spring-batch-core` 모듈의 `org/springframework/batch/core/migration/` 디렉터리.
-
-### 3. Spring Boot 4의 배치 스타터 선택 (JDBC vs 몽고DB)
-
-Spring Boot 4에서 배치 메타 저장소가 스타터 단위로 분리됐다. **JDBC와 몽고DB는 상호배타적 — 한 프로젝트에 함께 쓰지 않는다.**
-
-| 스타터 | 용도 |
-|---|---|
-| `spring-boot-starter-batch` | 배치 코어. 메타 저장소 구현체 미포함 |
-| `spring-boot-starter-batch-jdbc` | JDBC 메타 저장소 (기존 `BATCH_*` 테이블) |
-| `spring-boot-starter-batch-data-mongodb` | 몽고DB 메타 저장소 (Spring Boot 4.1 신규) |
-
-Batch 4를 쓰던 프로젝트는 대부분 JDBC이므로 특별한 사유가 없다면 `spring-boot-starter-batch-jdbc`를 그대로 쓴다.
-
-자동 구성 클래스 패키지도 이동했다.
-
-| 이전 (Boot 2.7 / 3) | 변경 후 (Boot 4) |
-|---|---|
-| `org.springframework.boot.autoconfigure.batch.BatchAutoConfiguration` | `org.springframework.boot.batch.autoconfigure.BatchAutoConfiguration` |
-| `org.springframework.boot.autoconfigure.batch.JobLauncherApplicationRunner` | `org.springframework.boot.batch.autoconfigure.JobLauncherApplicationRunner` |
-| `org.springframework.boot.autoconfigure.batch.BatchDataSource` | `org.springframework.boot.batch.jdbc.autoconfigure.BatchDataSource` |
-| `BatchProperties$Jdbc` 내부 클래스 | `org.springframework.boot.batch.jdbc.autoconfigure.BatchJdbcProperties` |
-
-`JobLauncherApplicationRunner` 생성자가 `(JobLauncher, JobExplorer, JobRepository)` 3-인자에서 `(JobOperator)` 단일 인자로 단순화됐다.
-
-몽고DB 저장소로 가는 경우 주의점:
-- `spring.batch.data.mongodb.schema.initialize=true`로 컬렉션 초기화
-- 트랜잭션을 위해 반드시 Replica set(단일 노드라도)으로 띄움
-- 테스트는 `MongoDBContainer` + `@ServiceConnection`
-
-검색:
-```
-rg "org\.springframework\.boot\.autoconfigure\.batch\." src
-rg "new JobLauncherApplicationRunner\([^)]*," src
-rg "BatchProperties\s*\.\s*class|properties\.getJdbc\(\)" src
-```
-
-### 4. `@EnableBatchProcessing` 역할 변화와 `BatchConfigurer` 제거
-
-Batch 4에서는 `@EnableBatchProcessing`이 기반 구성 요소를 직접 등록했지만, Batch 6에서는 Spring Boot 자동 설정이 그 역할을 한다.
-
-- `BatchConfigurer` 인터페이스와 `SimpleBatchConfiguration` 클래스 **삭제** (deprecated 단계 없이).
-- `MapJobRepositoryFactoryBean`, `MapJobExplorerFactoryBean` 삭제.
-
-대체 방법 (우선순위 순):
-1. Spring Boot 자동 설정 그대로 활용 (대부분 이것으로 충분). `application.properties`의 `spring.batch.*` 속성으로 세부 동작 지정.
-2. `@EnableBatchProcessing`의 속성(`dataSourceRef`, `transactionManagerRef`, ...).
-3. `JdbcDefaultBatchConfiguration` 상속 → 훅 메서드 오버라이드.
-
-**중요**: 세 방법은 함께 쓰지 않는다. 1번(자동 설정)을 쓰는데 `@EnableBatchProcessing`을 덧붙이면 자동 설정이 물러나서 `spring.batch.*` 속성이 읽히지 않는다. Spring Boot로 배치를 쓰는 기본 전제는 `@EnableBatchProcessing`을 **붙이지 않는다**는 것이다.
-
-테스트용 인메모리 저장소는 `ResourcelessJobRepository`(Batch 5.2+)로 교체.
-
-검색:
-```
-rg "BatchConfigurer|SimpleBatchConfiguration|MapJobRepositoryFactoryBean|MapJobExplorerFactoryBean" src
-rg "@EnableBatchProcessing" src
-```
-
-### 5. `@EnableJdbcJobRepository` / `@EnableMongoJobRepository` 도입
-
-Batch 6.0부터 저장소별 전용 애너테이션이 생겼다. 3절의 스타터 선택과 짝을 이룬다. 두 애너테이션을 한 프로젝트에 함께 붙이지 않는다.
-
-**중요**: 이 애너테이션들도 4절의 `@EnableBatchProcessing`과 마찬가지로 **자동 설정을 쓰는 경우에는 붙이지 않는다**. `application.properties`에 `spring.batch.jdbc.*` 속성만 지정하면 자동 설정이 `JobRepository`를 등록한다. 애너테이션을 덧붙이면 자동 설정이 비활성화되어 속성이 일부 무시된다.
-
-자동 설정을 쓰지 않고 자바 코드로 직접 지정해야 하는 경우에는 `@EnableBatchProcessing`과 **함께** 쓴다.
-
-```java
-@EnableBatchProcessing(taskExecutorRef = "batchTaskExecutor")
-@EnableJdbcJobRepository(dataSourceRef = "batchDataSource", tablePrefix = "BATCH6_")
-class MyJobConfiguration { ... }
-```
-
-`isolationLevelForCreate` 값 타입이 `String` → `Isolation` enum으로 바뀌었다 (Batch 4에서는 String이었다).
-
-| Batch 4 (String) | Batch 6 (enum) |
-|---|---|
-| `isolationLevelForCreate = "ISOLATION_REPEATABLE_READ"` | `isolationLevelForCreate = Isolation.REPEATABLE_READ` |
-
-JDBC 저장소를 자바 코드로 직접 설정하는 방식이라면 `DefaultBatchConfiguration` 대신 `JdbcDefaultBatchConfiguration`을 상속한다.
-
-검색:
-```
-rg "isolationLevelForCreate\s*=\s*\"ISOLATION_" src
-rg "extends DefaultBatchConfiguration\b" src
-rg "@EnableJdbcJobRepository|@EnableMongoJobRepository" src
-```
-
-### 6. 배치 관련 스프링 부트 속성명 변화
-
-자동 설정으로 쓰는 프로젝트(4·5절의 기본 경로)에서는 **속성명 변경이 실질적인 업그레이드 작업**이다.
-Boot 2.7 → 4.x 사이에 배치 관련 속성이 여러 단계에 걸쳐 이름이 바뀌었다.
-
-| 이전 (Batch 4 / Boot 2.7) | 변경 후 (Batch 6 / Boot 4) | 반영 버전 |
-|---|---|---|
-| `spring.batch.initialize-schema` | `spring.batch.jdbc.initialize-schema` | Boot 2.5 |
-| `spring.batch.schema` | `spring.batch.jdbc.schema` | Boot 2.5 |
-| `spring.batch.table-prefix` | `spring.batch.jdbc.table-prefix` | Boot 2.5 |
-| `spring.batch.isolation-level-for-create` | `spring.batch.jdbc.isolation-level-for-create` | Boot 2.5 |
-| `spring.batch.job.names` (콤마 구분) | `spring.batch.job.name` (단일 값) | Boot 3.0 |
-| `spring.redis.*` | `spring.data.redis.*` | Boot 3.0 |
-| _(없음)_ | `spring.batch.data.mongodb.*` | Boot 4.1 신규 |
-
-일괄 진단에는 `spring-boot-properties-migrator` 모듈이 유용하다. `build.gradle`에 런타임 의존성으로 추가하면 부팅 시 옛 속성명과 권장 대체를 로그로 출력한다.
-
-```groovy
-dependencies {
-    runtimeOnly 'org.springframework.boot:spring-boot-properties-migrator'
-}
-```
-
-검증이 끝나면 이 의존성은 제거한다. 배치 외 속성 변경은 아래 공식 가이드를 참고한다.
-
-- Spring Boot 3.0 Migration Guide: https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide
-- Spring Boot 4.0 Migration Guide: https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide
-
-검색:
-```
-rg "spring\.batch\.(initialize-schema|schema|table-prefix|isolation-level-for-create)\b" src
-rg "spring\.batch\.job\.name\b" src
-rg "spring\.redis\." src
-```
-
-### 7. `JobBuilderFactory` / `StepBuilderFactory` 제거와 빌더 시그니처
+### B. `JobBuilderFactory` / `StepBuilderFactory` 제거
 
 Batch 4의 팩토리 방식은 사라졌다. `new JobBuilder(...)` / `new StepBuilder(...)`를 직접 호출하고, `JobRepository`를 생성자 인자로 넘긴다.
+
+**잡**:
+```java
+// Batch 4
+jobBuilderFactory.get("job").start(step).build();
+
+// Batch 6
+new JobBuilder("job", jobRepository).start(step).build();
+```
 
 **태스클릿 스텝**:
 ```java
@@ -193,7 +85,7 @@ new StepBuilder("step", jobRepository).tasklet(t, transactionManager).build();
 new StepBuilder("step", jobRepository).tasklet(t).build();
 ```
 
-**청크 지향 스텝**: Batch 5 세대의 `.chunk(int, TransactionManager)` 2-인자 오버로드는 **Batch 6에서 deprecated**. `.chunk(int)` 뒤에 `.transactionManager(...)`를 체이닝한다. Batch 4에서 직접 가는 독자는 중간 형태를 거치지 말고 바로 이 형태로 간다.
+**청크 지향 스텝**: Batch 5 세대의 `.chunk(int, TransactionManager)` 2-인자 오버로드는 Batch 6에서 deprecated다. 중간 형태를 거치지 말고 5→6 문서 2절의 최종 형태로 바로 간다.
 
 ```java
 // Batch 4
@@ -209,97 +101,14 @@ new StepBuilder("step", jobRepository)
     .build();
 ```
 
-`.chunk(CompletionPolicy)` 오버로드도 Batch 6에서 deprecated. `SimpleCompletionPolicy`, `TimeoutTerminationPolicy` 등을 `StepBuilder`에 직접 꽂던 코드는 `.chunk(int)` 형태로 바꾸거나 별도 커스텀 로직으로 빼낸다.
+Batch 4에서는 `@EnableBatchProcessing`이 등록한 트랜잭션 매니저를 암묵적으로 썼다. Batch 6에서는 트랜잭션 매니저를 생략할 수도 있으므로, 기존 트랜잭션 의미를 보존하도록 어떤 `PlatformTransactionManager`를 넘길지 명시적으로 결정한다. 업무 DB와 메타 DB가 다르면 청크 스텝에는 **업무 DB**의 트랜잭션 매니저를 넘긴다.
 
 검색:
 ```
 rg "JobBuilderFactory|StepBuilderFactory" src
-rg "\.chunk\([^)]+,\s*[^)]*[Tt]ransactionManager" src
-rg "\.chunk\([^)]*CompletionPolicy" src
 ```
 
-### 8. 패키지 재배치 (Batch 6에서 `infrastructure` 분리)
-
-Batch 6.0에서 배치 모듈이 `core`와 `infrastructure`로 물리 분리되면서 대부분의 타입 FQCN이 바뀌었다. Batch 4에서는 이동 전 경로를 썼으므로 import를 모두 교체한다.
-
-| 이전 (Batch 4) | 변경 후 (Batch 6) |
-|---|---|
-| `org.springframework.batch.core.Job` | `org.springframework.batch.core.job.Job` |
-| `org.springframework.batch.core.Step` | `org.springframework.batch.core.step.Step` |
-| `org.springframework.batch.core.JobExecution` | `org.springframework.batch.core.job.JobExecution` |
-| `org.springframework.batch.core.StepExecution` | `org.springframework.batch.core.step.StepExecution` |
-| `org.springframework.batch.core.StepContribution` | `org.springframework.batch.core.step.StepContribution` |
-| `org.springframework.batch.core.JobParameters` | `org.springframework.batch.core.job.parameters.JobParameters` |
-| `org.springframework.batch.core.JobParametersBuilder` | `org.springframework.batch.core.job.parameters.JobParametersBuilder` |
-| `org.springframework.batch.item.ItemReader/ItemWriter/ItemProcessor` | `org.springframework.batch.infrastructure.item.*` |
-| `org.springframework.batch.item.ExecutionContext` | `org.springframework.batch.infrastructure.item.ExecutionContext` |
-| `org.springframework.batch.repeat.RepeatStatus` | `org.springframework.batch.infrastructure.repeat.RepeatStatus` |
-| `org.springframework.batch.support.transaction.ResourcelessTransactionManager` | `org.springframework.batch.infrastructure.support.transaction.ResourcelessTransactionManager` |
-| 리스너 인터페이스 (`JobExecutionListener` 등) | `org.springframework.batch.core.listener.*` |
-
-검색:
-```
-rg "org\.springframework\.batch\.core\.(StepContribution|StepExecution|JobExecution|JobParameters|JobParametersBuilder|Job\b|Step\b)" src
-rg "org\.springframework\.batch\.item\." src
-rg "org\.springframework\.batch\.repeat\." src
-rg "org\.springframework\.batch\.support\.transaction\." src
-rg "org\.springframework\.batch\.core\.(JobExecutionListener|StepExecutionListener|ChunkListener|ItemReadListener|ItemProcessListener|ItemWriteListener|SkipListener)\b" src
-```
-
-### 9. `JobLauncher` → `JobOperator` 통합
-
-Batch 6에서 `JobLauncher` 인터페이스와 `TaskExecutorJobLauncher` 구현이 모두 deprecated. `JobOperator`로 통합됐다.
-
-| Batch 4 | Batch 6 |
-|---|---|
-| `JobLauncher` 인터페이스 주입 | `JobOperator` 인터페이스 주입 |
-| `new TaskExecutorJobLauncher()` | `new TaskExecutorJobOperator()` |
-| `JobLauncher.run(Job, JobParameters)` | `JobOperator.start(Job, JobParameters)` |
-| `JobLauncherTestUtils.launchJob(...)` | `JobOperatorTestUtils.startJob(...)` |
-| `JobLauncherTestUtils.launchStep(String)` | `JobOperatorTestUtils.startStep(String)` |
-| `StepBuilder.job(Job).launcher(...)` | `StepBuilder.job(Job).operator(...)` |
-
-`JobOperator` 본체 메서드도 문자열·Long 기반에서 도메인 객체 기반으로 바뀌었다.
-
-| Batch 4 | Batch 6 |
-|---|---|
-| `operator.start(String jobName, Properties)` | `operator.start(Job, JobParameters)` |
-| `operator.stop(long executionId)` | `operator.stop(JobExecution)` |
-| `operator.restart(long executionId)` | `operator.restart(JobExecution)` |
-| `operator.startNextInstance(String jobName)` | `operator.startNextInstance(Job)` |
-| `operator.getRunningExecutions(String)` → `Set<Long>` | `JobRepository.findRunningJobExecutions(String)` → `Set<JobExecution>` |
-| `operator.getJobNames()` | `JobRegistry.getJobNames()` |
-
-검색:
-```
-rg "JobLauncherTestUtils|launchStep\(|launchJob\(" src
-rg "TaskExecutorJobLauncher|\.launcher\(" src
-rg "\bJobLauncher\b" src
-rg "operator\.(getJobNames|getRunningExecutions|stop\(\s*[0-9a-zA-Z_]+\s*\)|restart\(\s*[0-9a-zA-Z_]+\s*\)|startNextInstance\(\s*\"|start\(\s*\")" src
-```
-
-### 10. `JobRepository`가 `JobExplorer`를 흡수
-
-Batch 4에서 `JobRepository`(쓰기)와 `JobExplorer`(읽기)를 각각 주입받던 코드는, Batch 6에서 `JobRepository` 하나로 통일한다. `JobRepository extends JobExplorer`.
-
-### 11. `modular=true` / `ApplicationContextFactory` 패턴 폐기
-
-Batch 4에서 잡별로 독립된 애플리케이션 컨텍스트를 띄우던 전통적인 패턴은 Batch 6에서 전면 deprecated.
-
-| Batch 4 | Batch 6 |
-|---|---|
-| `@EnableBatchProcessing(modular = true)` | 단일 컨텍스트 + 잡 그룹별 `@Configuration` + `@Import` |
-| `ApplicationContextFactory` / `GenericApplicationContextFactory` 빈 | 잡 그룹 설정 클래스에 `@Import({JobA.class, ...})` |
-| `JobLocator` 인터페이스 | `JobRegistry` |
-
-검색:
-```
-rg "modular\s*=\s*true" src
-rg "ApplicationContextFactory|GenericApplicationContextFactory|AbstractApplicationContextFactory" src
-rg "\bJobLocator\b" src
-```
-
-### 12. `ItemWriter` 시그니처 `List` → `Chunk` + 리스너 시그니처
+### C. `ItemWriter.write(List)` → `write(Chunk)`
 
 `ItemWriter.write()` 파라미터가 `List` → `Chunk`로 바뀌었다(5.0에서 최초 변경, 6까지 그대로).
 
@@ -315,166 +124,163 @@ public interface ItemWriter<T> {
 }
 ```
 
-`List`가 필요하면 `chunk.getItems()` 호출.
-
-리스너 시그니처도 함께 바뀌었다.
-
-| Batch 4 | Batch 6 |
-|---|---|
-| `ItemWriteListener.beforeWrite(List<? extends S>)` | `beforeWrite(Chunk<? extends S>)` |
-| `ItemWriteListener.afterWrite(List<? extends S>)` | `afterWrite(Chunk<? extends S>)` |
-| `ChunkListener.beforeChunk(ChunkContext)` | `beforeChunk(Chunk<I>)` (제네릭) |
-| `ChunkListener.afterChunk(ChunkContext)` | `afterChunk(Chunk<O>)` |
-| `ChunkListener.afterChunkError(ChunkContext)` | `onChunkError(Exception, Chunk<O>)` |
-| `@AfterChunkError` | 애너테이션으로는 등록 불가. `ChunkListener`를 구현해 `onChunkError(Exception, Chunk<O>)` 재정의 |
-| `ChunkListener.ROLLBACK_EXCEPTION_KEY` 상수 | deprecated (6.2 이후 제거) |
-| `extends JobExecutionListenerSupport` | `implements JobExecutionListener` |
-| `extends StepExecutionListenerSupport` | `implements StepExecutionListener` |
-
-`ChunkListener`는 제네릭 타입 `ChunkListener<I, O>`로 바뀌었다. 여러 리스너를 한 클래스에 모으고 싶으면 `ItemListenerSupport`, `StepListenerSupport`는 그대로 남아 있으니 이쪽을 쓴다.
+- `List`가 필요하면 `chunk.getItems()`를 호출한다.
+- 테스트에서 `writer.write(List.of(...))`로 부르던 코드는 `writer.write(new Chunk<>(...))`로 바꾼다.
+- `ItemWriteListener`의 `List` 시그니처도 함께 바뀌었다. 5→6 문서 8절 표를 따른다.
 
 검색:
 ```
 rg "void write\(List<" src
-rg "beforeWrite\(List<|afterWrite\(List<|onWriteError\([^,]+,\s*List<" src
-rg "afterChunkError|ROLLBACK_EXCEPTION_KEY|@AfterChunkError" src
-rg "ChunkListener\b[^<]" src
-rg "JobExecutionListenerSupport|StepExecutionListenerSupport" src
+rg "\.write\(List\.of\(|\.write\(Arrays\.asList\(|\.write\(Collections\." src
 ```
 
-### 13. `JobParameters`의 타입 보존과 태스클릿 내 접근 방식
+### D. `@EnableBatchProcessing` 역할 변화와 `BatchConfigurer` 제거
 
-Batch 4에서는 파라미터가 `String`/`Long`/`Double`/`Date` 중 하나로 고정. Batch 5부터 임의 `Class<T>` 타입을 보존하도록 바뀌었고, 이 구조가 6까지 이어진다.
+Batch 4의 기반 구성을 조사한 뒤, Batch 6에서는 Boot 자동 설정을 사용할지 명시적 구성을 사용할지 선택한다. 기존 BatchConfigurer의 커스터마이징을 확인하지 않고 애너테이션만 제거하지 않는다.
 
-**명령행 형식**: 과거 `key=value` → 타입 힌트 포함 형식 권장.
-```
-# 과거 (Batch 4에서 잘 쓰던 형식)
-java -jar batch.jar memoFile=file:/tmp/memo.txt
+- `BatchConfigurer` 인터페이스와 `SimpleBatchConfiguration` 클래스 **삭제** (deprecated 단계 없이).
+- `MapJobRepositoryFactoryBean`, `MapJobExplorerFactoryBean` 삭제.
+- `JobBuilderFactory`, `StepBuilderFactory` 빈도 사라졌으므로(B절) `@EnableBatchProcessing`을 붙일 이유가 대부분 없어진다.
 
-# 현재 (Batch 6 권장)
-java -jar batch.jar memoFile=file:/tmp/memo.txt,org.springframework.core.io.Resource,true
-```
-세 번째 불리언은 identifying 플래그.
+대체 방법 (현재 요구에 맞춰 하나를 선택):
+1. Spring Boot 자동 설정 그대로 활용 (대부분 이것으로 충분). `application.properties`의 `spring.batch.*` 속성으로 세부 동작 지정. **`@EnableBatchProcessing`을 제거한다.**
+2. 자바 코드로 지정해야 하는 경우 `@EnableBatchProcessing` + `@EnableJdbcJobRepository`. Batch 4에서 BatchConfigurer 등으로 지정하던 저장소 설정을 옮긴다. Batch 5의 `@EnableBatchProcessing`에서 제공하던 저장소 속성은 6에서 `@EnableJdbcJobRepository`로 이동했다. 속성 목록과 주의점은 5→6 문서 9절.
+3. `JdbcDefaultBatchConfiguration` 상속 → 훅 메서드 오버라이드.
 
-**태스클릿 내부**: `ChunkContext.getStepContext().getJobParameters()`(Map 반환)는 비권장. `StepContribution` 경유로 타입별 getter를 쓴다.
-```java
-// Batch 4 관용 (Map 기반)
-Map<String, Object> params = ctx.getStepContext().getJobParameters();
-LocalDate baseDate = (LocalDate) params.get("baseDate");
+**중요**: 기반 구성은 세 방법 중 하나로 일관되게 정한다. 1번에 `@EnableBatchProcessing`을 덧붙이면 저장소 자동 설정이 물러날 수 있다. 다만 Boot 4의 기동 시 잡 실행 자동 설정은 별개이므로 `spring.batch.*` 전체가 무시된다고 가정하지 않는다. 기반 구성·스키마 초기화·잡 자동 실행을 나누어 검증한다(5→6 문서 6절).
 
-// Batch 6 권장
-JobParameters params = contribution.getStepExecution().getJobParameters();
-LocalDate baseDate = params.getLocalDate("baseDate");
-Long chunkSize = params.getLong("chunkSize");
-```
+`BatchConfigurer`로 하던 일의 대응:
+
+| Batch 4 `BatchConfigurer` | Batch 6 |
+|---|---|
+| `getJobRepository()` 오버라이드로 데이터소스 지정 | 자동 설정: 메타 DB 데이터소스 빈에 `@BatchDataSource`. 코드: `@EnableJdbcJobRepository(dataSourceRef = ...)` |
+| `getTransactionManager()` | 자동 설정: `@BatchTransactionManager`. 명시적 구성: 저장소는 `@EnableJdbcJobRepository(transactionManagerRef = ...)`, 실행기는 `@EnableBatchProcessing(transactionManagerRef = ...)`, 스텝은 빌더에서 각각 지정(5→6 문서 9절) |
+| `getJobLauncher()`에서 `TaskExecutor` 지정 | 자동 설정: `@BatchTaskExecutor`. 코드: `@EnableBatchProcessing(taskExecutorRef = ...)` |
+| 테스트용 `MapJobRepositoryFactoryBean` | 이력·재시작 등 저장소 기능을 검증하면 H2 또는 운영 DB와 같은 종류의 격리된 JDBC 저장소 |
+
+`ResourcelessJobRepository`는 기존 Map 저장소의 일반적인 대체재가 아니다. 메타데이터를 저장하지 않고 스레드 안전하지 않으며, 재시작·ExecutionContext 공유·파티셔닝을 필요로 하지 않는 일회성 실행에 한정한다. 기존 테스트의 검증 목적을 유지한다. [공식 API](https://docs.spring.io/spring-batch/reference/api/org/springframework/batch/core/repository/support/ResourcelessJobRepository.html)
 
 검색:
 ```
-rg "chunkContext\.getStepContext\(\)\.getJobParameters\(\)" src
+rg "BatchConfigurer|SimpleBatchConfiguration|MapJobRepositoryFactoryBean|MapJobExplorerFactoryBean" src
+rg "@EnableBatchProcessing" src
 ```
 
-### 14. 도메인 객체의 시간 타입과 생성자
+### E. 메타DB 스키마·직렬화 변경과 전환 전략
 
-`JobExecution` / `StepExecution`의 시간 타입이 `Date` → `LocalDateTime`. 생성자 시그니처도 정리됐다.
+4→6에서는 **4→5와 5→6의 변경을 모두 검토한다**. 아래 표는 주요 변경이며 DB별 DDL 전체를 대신하지 않는다.
+
+| 대상 | 주요 변경 |
+|---|---|
+| `BATCH_STEP_EXECUTION` | `CREATE_TIME` 추가, `START_TIME`의 NOT NULL 제약 해제 |
+| `BATCH_JOB_EXECUTION` | `JOB_CONFIGURATION_LOCATION` 제거. 5.0 마이그레이션 스크립트는 이 칼럼을 지우지 않으므로 기존 저장소를 이행할 때 남아 있어도 된다 |
+| `BATCH_JOB_EXECUTION_PARAMS` | `KEY_NAME` → `PARAMETER_NAME`, `TYPE_CD` → `PARAMETER_TYPE` |
+| 파라미터 타입·값 | 타입은 클래스명, 값은 `PARAMETER_VALUE`에 문자열로 저장. 타입 열 길이 및 값 열 길이(250→2500) 변경, `DATE_VAL`·`LONG_VAL`·`DOUBLE_VAL` 제거 |
+| 6.0 시퀀스 | `BATCH_JOB_SEQ` → `BATCH_JOB_INSTANCE_SEQ` |
+
+파라미터 변경은 단순 컬럼 이름 변경만으로 끝나지 않는다. 기존 타입 코드와 날짜·숫자 값을 새 표현으로 변환할 수 있는지 검증한다. 목표 버전의 `spring-batch-core`에 포함된 `org/springframework/batch/core/migration/5.0/`, `migration/6.0/`와 DB별 schema SQL을 기준으로 실제 스키마 차이를 확인한다. Oracle·SQL Server 등 DB별 시퀀스 변경도 확인한다.
+
+Batch 5에서는 기본 ExecutionContext serializer가 Jackson 기반에서 `DefaultExecutionContextSerializer`의 Base64 기반 직렬화로 바뀌었다. 실제 프로젝트의 커스텀 설정에 따라 기존 포맷은 다를 수 있다. 과거 컨텍스트의 역직렬화, 저장된 객체의 직렬화 가능 여부와 클래스 이동을 검증한다. Batch 6의 파라미터 구조·직렬화 변경도 추가로 적용되므로, 4의 실패 실행을 6에서 그대로 재시작할 수 있다고 가정하지 않는다. 미완료 실행은 기존 버전에서의 완료 또는 업무상 확정한 별도 재처리 계획으로 다룬다.
+
+전환 전략은 요구에 따라 선택한다.
+
+| 전략 | 적용 조건과 확인 사항 |
+|---|---|
+| 기존 저장소 이행 | 이력 보존·조회 요구가 있을 때 검토. DB별 DDL·값 변환·직렬화 호환성을 복제 데이터로 검증하고 공유 애플리케이션의 동시 전환 여부를 결정 |
+| 새 접두어/스키마로 분리 | 이력을 별도 보관하고 새 저장소로 시작할 수 있을 때 검토. 과거 완료 이력·체크포인트·구버전과의 중복 실행 방지가 자동으로 이어지지 않음을 반영 |
+
+접두어 분리를 선택하면 `BATCH6_` 등 실제 이름에 맞는 테이블·시퀀스 DDL을 준비하고 활성 저장소 구성에 같은 값을 지정한다. 속성만 바꾸면 새 스키마가 생성되거나 기존 이력이 이동한다고 가정하지 않는다. 구·신 버전의 스케줄러 전환, 업무 데이터 중복·누락, 롤백 범위는 5→6 문서 16절을 따른다. 접두어를 되돌려도 이미 변경된 업무 데이터는 복원되지 않는다.
+
+근거: [5.0 공식 가이드](https://github.com/spring-projects/spring-batch/wiki/Spring-Batch-5.0-Migration-Guide), [6.0 공식 가이드](https://github.com/spring-projects/spring-batch/wiki/Spring-Batch-6.0-Migration-Guide).
+
+검색:
+```
+rg "table-prefix|tablePrefix|JOB_CONFIGURATION_LOCATION|TYPE_CD|KEY_NAME|STRING_VAL|DATE_VAL|LONG_VAL|DOUBLE_VAL|BATCH_JOB_SEQ|ExecutionContextSerializer" src
+```
+SQL·배포 설정·운영 스크립트는 5→6 문서 16절의 전체 프로젝트 검색도 적용한다.
+
+### F. `JobParameters`의 타입 보존과 명령행 형식
+
+Batch 4에서는 파라미터가 `String`/`Long`/`Double`/`Date`로 제한됐다. Batch 5부터 임의 타입을 지원하고, Batch 6에서는 이름을 포함한 record와 Set 구조로 바뀐다. 생성자·접근자·순회·incrementer 변경은 5→6 문서 15절을 함께 적용한다.
+
+**명령행 형식**: 기존 문자열 파라미터의 `key=value`는 여전히 유효하다. 기본 변환기의 타입과 identifying 표기는 선택 사항이다.
+```
+# 기존 String 타입과 identifying=true를 유지
+java -jar batch.jar inputFile=file:/data/input.txt
+
+# 같은 의미를 명시적으로 표현
+java -jar batch.jar inputFile=file:/data/input.txt,java.lang.String,true
+```
+Batch 4에서 `name(long)=...` 같은 타입 표기나 identifying 접두어를 사용했다면 새 변환기 표기로 옮기되 이름·타입·값·identifying을 보존한다. 사용자 정의 변환기와 운영 스크립트·CI 호출부도 확인한다. 파일 경로 String을 Resource로 바꾸는 것은 필수 업그레이드가 아니다.
+
+**`JobParametersBuilder`**: 기존 `addString`, `addLong`, `addDouble`, `addDate` 사용처는 타입을 유지한다. `Date`→`LocalDate`/`LocalDateTime`은 시간대·시각 정보와 인스턴스 식별에 영향을 줄 수 있으므로 별도 변경으로 다룬다. 업무상 타입을 변경하기로 정했다면 명령행 파싱·저장·조회·재시작 시 복원을 검증한다.
+
+**태스클릿 내부**: Map 접근 자체는 필수 제거 대상이 아니다. 타입별 getter 활용은 5→6 문서 15절의 선택적 개선으로 적용한다.
+
+검색:
+```
+rg "addDate\(|getDate\(|JobParametersConverter|JobParameter" src
+rg "getStepContext\(\)\.getJobParameters\(\)" src
+```
+운영 스크립트의 실제 인자도 함께 조사한다.
+
+### G. JSR-352·JAXB 같은 4.x 세대 이슈 정리 (일회성)
+
+- **JSR-352**: Spring Batch의 JSR-352 구현은 5에서 제거됐다. `javax.batch.*`를 `jakarta.batch.*`로 치환하는 것으로 해결되지 않는다. JSR 잡 정의 XML·배치 아티팩트·실행 진입점을 조사하고 Spring Batch API와 설정으로 재작성한다. 실행·재시작 동등성을 검증한다. [공식 5.0 가이드](https://github.com/spring-projects/spring-batch/wiki/Spring-Batch-5.0-Migration-Guide#jsr-352-implementation-removal)
+- **JAXB 명시 의존성**: JAXB는 JDK 11에서 제거됐으므로 JDK 17이라는 이유로 의존성을 삭제하지 않는다. XML Reader/Writer, `Jaxb2Marshaller`, 생성된 바인딩 클래스의 사용을 확인하고 필요한 Jakarta XML Binding API·런타임의 호환 버전을 유지한다. 사용처가 없고 다른 라이브러리도 필요로 하지 않을 때만 제거한다. [JDK 제거 항목](https://docs.oracle.com/en/java/javase/17/migrate/removed-tools-and-components.html)
+
+검색:
+```
+rg "javax\.batch\.|jakarta\.batch\.|javax\.xml\.bind|jakarta\.xml\.bind|Jaxb2Marshaller|StaxEventItem|batch-jobs" src
+rg "jaxb|xml.bind" -g 'build.gradle*' -g 'pom.xml' -g '*.toml' .
+```
+
+## 5→6 문서 절에 대한 보충
+
+### 0절 보충: 빌드 스크립트
+
+- Boot 2.7 프로젝트의 `spring-boot-starter-batch`에는 JDBC 메타 저장소가 포함돼 있었다. Boot 4에서는 `spring-boot-starter-batch-jdbc`로 **바꿔야** 같은 동작이 유지된다. 0절의 '조용한 실패 경고'가 4에서 올 때 특히 잘 일어난다.
+- Gradle 7.x면 부트 4 플러그인이 요구하는 Gradle 버전으로 래퍼를 먼저 올린다.
+
+### 1절 보충: 패키지 재배치
+
+- Batch 4의 패키지 경로는 Batch 5와 같으므로 1절의 표를 그대로 적용한다.
+- `org.springframework.batch.core.configuration.annotation.JobBuilderFactory` / `StepBuilderFactory` import는 B절에서 제거된다.
+
+### 8절 보충: 리스너
+
+- Batch 4의 `ItemWriteListener`는 `List`를 받았고, `ChunkListener`는 `ChunkContext`를 받았다. 8절 표의 '이전' 열과 같다. 새 청크 모델의 리스너 호출 시점·트랜잭션 경계·동시 실행 제약도 함께 검증한다.
+- `JobExecutionListenerSupport`, `StepExecutionListenerSupport` 상속은 Batch 4에서 흔했다. 인터페이스의 default 메서드로 대체한다.
+
+### 10절 보충: 부트 속성명
+
+Boot 2.7에는 이미 반영된 속성 변경도 있으므로 10절 표는 실제 사용처가 있을 때만 적용한다. 추가로 다음 변경을 확인한다.
+
+| 이전 (Boot 2.7) | 변경 후 (Boot 4) | 반영 버전 |
+|---|---|---|
+| `spring.redis.*` | `spring.data.redis.*` | Boot 3.0 |
+
+`spring-boot-properties-migrator`는 두 메이저를 건너뛰는 경우 특히 유용하다.
+
+검색:
+```
+rg "spring\.batch\.(initialize-schema|schema|table-prefix|isolation-level-for-create)\b" src
+rg "spring\.batch\.job\.names\b" src
+rg "spring\.redis\." src
+```
+
+### 12절 보충: 시간 타입
+
+`JobExecution` / `StepExecution`의 시간 타입이 5.0에서 `Date` → `LocalDateTime`으로 바뀌었다.
 
 | Batch 4 | Batch 6 |
 |---|---|
-| `new JobExecution(Long)` 단일 인자 | 제거. `new JobExecution(long, JobInstance, JobParameters)` |
-| `new StepExecution(String, JobExecution, Long)` | `new StepExecution(long, String, JobExecution)` — 인자 순서 변경 |
 | `JobExecution.getStartTime()` → `Date` | `LocalDateTime` |
 | `StepExecution.getEndTime()` → `Date` | `LocalDateTime` |
 
-테스트에서는 가능하면 생성자 대신 `MetaDataInstanceFactory`를 쓴다.
-
-| 대신 | 이렇게 |
-|---|---|
-| `new JobExecution(0L, params)` | `MetaDataInstanceFactory.createJobExecution("testJob", 0L, 0L, params)` |
-| `new JobExecution(0L)` | `MetaDataInstanceFactory.createJobExecution()` |
-| `new StepExecution("name", jobExec)` | `MetaDataInstanceFactory.createStepExecution(jobExec, "name", 0L)` |
-
-시간 비교/포매팅 코드에서 `.toInstant()` 호출이 남아 있으면 제거한다. `LocalDateTime`을 그대로 `DateTimeFormatter`에 넘기면 된다.
+표시만 하는 코드는 LocalDateTime을 DateTimeFormatter에 넘길 수 있다. Instant·epoch·시간대 변환이 필요한 코드는 `.toInstant()`를 단순 삭제하지 말고 기존 DB/JVM의 시간대 의미를 확인한 뒤 명시적인 ZoneId로 변환한다. 시작·종료 시간이 없는 상태도 테스트한다.
 
 검색:
 ```
-rg "new JobExecution\(|new StepExecution\(" src
-rg "getStartTime\(\)\.toInstant|getEndTime\(\)\.toInstant" src
+rg "getStartTime\(\)\.toInstant|getEndTime\(\)\.toInstant|getCreateTime\(\)\.toInstant" src
 ```
-
-### 15. Jackson 2 → Jackson 3 (`tools.jackson`)
-
-| Batch 4 | Batch 6 |
-|---|---|
-| `new JacksonJsonObjectReader<>(objectMapper, Clazz.class)` | `new JacksonJsonObjectReader<>(Clazz.class)` 또는 `(jsonMapper, Clazz.class)` |
-| `new JacksonJsonObjectMarshaller<>(objectMapper)` | `new JacksonJsonObjectMarshaller<>()` 또는 `(jsonMapper)` |
-| `com.fasterxml.jackson.databind.ObjectMapper` | `tools.jackson.databind.json.JsonMapper` |
-| `registerModule(new JavaTimeModule())` | JSR-310 내장 지원 |
-| `jackson-datatype-jsr310` 의존성 | 불필요 |
-| `FAIL_ON_UNKNOWN_PROPERTIES` 기본 true | 기본 false |
-
-검색:
-```
-rg "com\.fasterxml\.jackson" src
-rg "JavaTimeModule|jackson-datatype-jsr310|Jackson2ObjectMapperBuilder" src
-```
-
-### 16. Spring Framework 7의 표준 `RetryPolicy`로 통합
-
-Batch 4에서 `spring-retry` 모듈의 개별 정책/백오프 클래스를 조합하던 패턴은 Batch 6에서 단일 빌더 호출로 대체된다.
-
-| Batch 4 (`spring-retry`) | Batch 6 (Spring Framework 7) |
-|---|---|
-| `new SimpleRetryPolicy(maxAttempts, Map.of(Ex.class, true))` | `RetryPolicy.builder().maxRetries(n).includes(Ex.class).build()` |
-| `new TimeoutRetryPolicy()` + `setTimeout(ms)` | `RetryPolicy.builder().delay(...)` |
-| `new FixedBackOffPolicy()` + `setBackOffPeriod(ms)` | `RetryPolicy.builder().delay(Duration.ofMillis(ms))` |
-| `new ExponentialBackOffPolicy()` + `setInitialInterval/Multiplier/MaxInterval` | `RetryPolicy.builder().delay(...).multiplier(...).maxDelay(...)` |
-| `FaultTolerantStepBuilder.backOffPolicy(BackOffPolicy)` | `RetryPolicy.builder()`의 지연·배율로 대체 |
-
-import: `org.springframework.retry.RetryPolicy` → `org.springframework.core.retry.RetryPolicy`
-
-검색:
-```
-rg "org\.springframework\.retry\.(policy|backoff)\." src
-rg "TimeoutRetryPolicy|SimpleRetryPolicy|FixedBackOffPolicy|ExponentialBackOffPolicy|CompositeRetryPolicy|BinaryExceptionClassifierRetryPolicy|MaxAttemptsRetryPolicy|CircuitBreakerRetryPolicy" src
-rg "\.backOffPolicy\(" src
-```
-
-### 17. JSpecify 애너테이션
-
-Spring Framework 7에서 `org.springframework.lang.@Nullable` / `@NonNull` deprecated. JSpecify 표준으로 교체.
-
-| Batch 4 / Spring 5 | Batch 6 / Spring 7 |
-|---|---|
-| `org.springframework.lang.Nullable` | `org.jspecify.annotations.Nullable` |
-| `org.springframework.lang.NonNull` | `org.jspecify.annotations.NonNull` |
-
-검색:
-```
-rg "org\.springframework\.lang\.(Nullable|NonNull)" src
-```
-
-### 18. JSR-352·JAXB 같은 4.x 세대 이슈 정리 (일회성)
-
-- **JSR-352 `javax.batch.*` 인터페이스**: 제거. 4.x부터도 비권장이었고 6.x에서는 `jakarta.batch.*`로 이동했지만 실전에서 쓸 이유가 거의 없다.
-- **JAXB 명시 의존성**: JDK 9 이후 표준에서 분리되어 Batch 4 시절 수동 의존성을 선언하던 시기가 있었다. JDK 17 기반의 Batch 6에서는 빌드 스크립트에서 제거해도 된다.
-
-검색:
-```
-rg "javax\.batch\." src
-rg "jaxb-(api|impl|runtime)" build.gradle pom.xml
-```
-
-## 완료 후 검수 포인트
-
-에이전트가 작업을 마쳤다고 보고해도 사람이 한 번 더 본다.
-
-- `./gradlew build -Xlint:deprecation` 출력에 deprecation 경고가 남아 있는지
-- 운영 스크립트·CI 파이프라인의 잡 파라미터 형식이 타입 힌트 포함 형식인지
-- 테이블 접두어 분리 마이그레이션을 쓴다면, 이 프로젝트가 실제로 읽는 **한 곳**(자동 설정의 `spring.batch.jdbc.table-prefix` / `@EnableJdbcJobRepository(tablePrefix=...)` / `JdbcDefaultBatchConfiguration.getTablePrefix()` 중 하나)에 새 접두어가 반영됐는지. 우선순위는 상속 > 애너테이션 > 자동 설정이라, 여러 곳에 중복해서 지정하면 의도한 값이 조용히 덮어써질 수 있다.
-- JMX·관리자 웹 어드민처럼 `JobOperator`의 문자열 기반 메서드를 직접 쓰던 운영 도구의 호출부
-
-## 공식 참고 자료
-
-- Spring Batch 5.0 Migration Guide: https://github.com/spring-projects/spring-batch/wiki/Spring-Batch-5.0-Migration-Guide
-- Spring Batch 6.0 Migration Guide: https://github.com/spring-projects/spring-batch/wiki/Spring-Batch-6.0-Migration-Guide
-- Spring Boot 3.0 Migration Guide: https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-3.0-Migration-Guide
-- Spring Boot 4.0 Migration Guide: https://github.com/spring-projects/spring-boot/wiki/Spring-Boot-4.0-Migration-Guide
