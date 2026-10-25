@@ -12,7 +12,7 @@
 | --- | --- | --- | --- | --- |
 | `memo-batch4` | 4.3 | 2.7.18 | 17 | 7.6.1 |
 | `memo-batch5` | 5.2 | 3.5.6 | 21 | 9.1.0 |
-| `memo-batch6` | 6.0.6-SNAPSHOT | 4.1.2-SNAPSHOT | 25 | 9.1.0 |
+| `memo-batch6` | 6.0.6 | 4.1.2 | 25 | 9.1.0 |
 
 `memo-batch4`는 JDK 17로 실행한다.
 그레이들 7.6.1이 실행을 공식 지원하는 JDK는 19까지이고([호환성 표](https://docs.gradle.org/current/userguide/compatibility.html)),
