@@ -1,6 +1,0 @@
-rootProject.name = 'batch-modules'
-include 'batch-support'
-include 'hello-job-group'
-include 'report-job-group'
-include 'admin-cli'
-include 'admin-web'
